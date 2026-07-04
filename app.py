@@ -40,6 +40,10 @@ except Exception as e:
 st.set_page_config(page_title="AI Finance Logger v3", layout="centered")
 st.title("💰 AI Finance Logger v3.0")
 
+# Inisialisasi counter reset form agar widget bisa dikosongkan tanpa eror
+if "reset_counter" not in st.session_state:
+    st.session_state.reset_counter = 0
+
 if "notif_sukses" in st.session_state and st.session_state.notif_sukses:
     st.success(st.session_state.notif_sukses)
     st.session_state.notif_sukses = ""
@@ -50,7 +54,11 @@ st.markdown("---")
 if "data_pilihan" not in st.session_state:
     st.session_state.data_pilihan = None
 
-input_user = st.text_area("Ketik catatan tambahan / konteks (misal: 'Belanja Superindo'):", key="teks_input_user")
+# FIX UTAMA: Menyuntikkan reset_counter ke dalam key agar widget bisa di-refresh secara legal
+input_user = st.text_area(
+    "Ketik catatan tambahan / konteks (misal: 'Belanja Superindo'):", 
+    key=f"teks_input_user_{st.session_state.reset_counter}"
+)
 berkas_nota = st.file_uploader("📸 Atau upload Nota / berkas PDF belanja kamu:", type=["jpg", "jpeg", "png", "pdf"])
 
 if st.button("Ekstrak Data dengan AI", type="primary"):
@@ -90,7 +98,6 @@ if st.button("Ekstrak Data dengan AI", type="primary"):
                 else:
                     input_gemini = [f"{prompt}\nTeks dari user: '{input_user}'"]
                 
-                # Mengunci output format JSON murni via SDK resmi
                 response = client.models.generate_content(
                     model="gemini-2.5-flash",
                     contents=input_gemini,
@@ -134,13 +141,14 @@ if st.session_state.data_pilihan:
                             int(item.get("nominal")),
                             item.get("kategori"),
                             item.get("keterangan"),
-                            "-"  # Kolom kelima tetap diisi minus karena jalur Drive dimatikan
+                            "-"
                         ])
                 
                 if rows_to_append:
                     sheet.append_rows(rows_to_append)
                     
-                    st.session_state.teks_input_user = ""
+                    # FIX UTAMA: Naikkan counter untuk memaksa Streamlit mereset text_area secara legal
+                    st.session_state.reset_counter += 1
                     st.session_state.data_pilihan = None
                     
                     st.session_state.notif_sukses = f"🎉 Sukses! Rangkuman belanja 100% tercatat di Google Sheets."
