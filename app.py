@@ -16,7 +16,7 @@ from PIL import Image
 NAMA_SPREADSHEET = "pencatat-keuangan"
 URL_LOOKER_STUDIO = "https://datastudio.google.com/s/mHCWurmgDmc"
 
-# ID Folder Google Drive milikmu
+# ID Folder Google Drive milikmu yang valid
 ID_FOLDER_DRIVE = "1Vb-_NLggBSOQ8d3Hk5tSmKMEoT4ijQmz"
 
 client = genai.Client()
@@ -71,22 +71,23 @@ if st.button("Ekstrak Data dengan AI", type="primary"):
             try:
                 hari_ini = datetime.date.today().strftime("%Y-%m-%d")
                 
+                # FIX PROMPT: Memaksa pendaftaran seluruh item tanpa toleransi pemotongan (Anti-dst)
                 prompt = f"""
                 Kamu adalah robot kasir yang bertugas merangkum nota belanjaan menjadi TEPAT SATU baris transaksi JSON Array.
                 Tanggal hari ini adalah {hari_ini}.
                 
                 Aturan Ekstraksi Kaku:
-                1. 'nominal': Isi dengan TOTAL AKHIR / GRAND TOTAL / Net Pembayaran setelah diskon (contoh: jika subtotal 481544, isi dengan 481544). Wajib berupa angka/integer murni tanpa titik atau koma.
-                2. 'keterangan': Susun string multi-line terstruktur. Mulai dengan teks konteks dari user: '{input_user}'. Di baris-baris berikutnya, sebutkan beberapa item barang penting yang dibeli beserta harganya, nilai Total awal, dan nilai total hemat/diskon dari nota. Gunakan tanda '\\n' untuk memisahkan setiap baris rincian agar rapi.
+                1. 'nominal': Isi dengan TOTAL AKHIR / GRAND TOTAL / Net Pembayaran setelah dikurangi diskon yang tertera di nota (Wajib berupa angka/integer murni tanpa titik atau koma).
+                2. 'keterangan': Susun string multi-line terstruktur. Mulai dengan teks konteks dari user: '{input_user}'. Di baris-baris berikutnya, kamu WAJIB MENULISKAN SEMUA ITEM BARANG YANG ADA DI NOTA SATU PER SATU TANPA KECUALI BESERTA HARGANYA. JANGAN PERNAH MERANGKUM LIST BARANG, JANGAN PERNAH MEMOTONG DAFTAR, DAN JANGAN PERNAH MENGGUNAKAN KATA 'dst', 'dan lain-lain', ATAU SINGKATAN SEJENISNYA. Semua angka belanjaan wajib masuk. Tuliskan juga nilai Sub Total awal dan Hemat Total/Diskon di bagian bawah rincian teks. Gunakan tanda '\\n' untuk memisahkan setiap baris rincian agar rapi.
                 3. 'kategori': Pilih satu kategori utama yang paling mewakili seluruh pengeluaran di nota ini.
                 
-                Hasilkan output dalam format JSON array dengan TEPAT SATU objek kaku seperti contoh ini:
+                Hasilkan output dalam format JSON array dengan TEPAT SATU objek kaku seperti contoh struktur ini:
                 [
                   {{
                     "tanggal": "{hari_ini}", 
                     "nominal": 481544, 
                     "kategori": "Belanja", 
-                    "keterangan": "Belanja Superindo\\n- Royale Hot: 16890\\n- Royale Blu: 15690\\n- Ekonomi Nanas: 8390\\n- dst\\nTotal: 481544\\nHemat Total: 140421"
+                    "keterangan": "Belanja Superindo\\n- Barang A: 10000\\n- Barang B: 20000\\nSub Total: 30000\\nHemat: 0"
                   }}
                 ]
                 
@@ -103,7 +104,6 @@ if st.button("Ekstrak Data dengan AI", type="primary"):
                     }
                     
                     if berkas_nota.type == "application/pdf":
-                        # Format biner PDF yang benar untuk SDK resmi
                         dokumen_pdf = types.Part.from_bytes(data=file_bytes, mime_type="application/pdf")
                         input_gemini = [prompt, dokumen_pdf]
                     else:
@@ -113,7 +113,6 @@ if st.button("Ekstrak Data dengan AI", type="primary"):
                     input_gemini = [f"{prompt}\nTeks dari user: '{input_user}'"]
                     st.session_state.berkas_mentah = None
                 
-                # FIX: Menggunakan metode dan model resmi google-genai SDK untuk ekstraksi konten
                 response = client.models.generate_content(
                     model="gemini-2.5-flash",
                     contents=input_gemini
