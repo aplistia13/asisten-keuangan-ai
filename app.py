@@ -52,7 +52,7 @@ if "data_pilihan" not in st.session_state:
     st.session_state.data_pilihan = None
 
 # HANYA GUNAKAN SATU TEXT AREA (Key terikat dengan sistem pembersihan otomatis)
-input_user = st.text_area("Ketik satu atau beberapa transaksi sekaligus di sini (bisa pengeluaran maupun pemasukan):", key="teks_input_user")
+input_user = st.text_area("Ketik rincian pendapatan/pengeluaran secara mendetail di sini:", key="teks_input_user")
 
 if st.button("Ekstrak Data dengan AI", type="primary"):
     if input_user:
@@ -60,18 +60,28 @@ if st.button("Ekstrak Data dengan AI", type="primary"):
             try:
                 hari_ini = datetime.date.today().strftime("%Y-%m-%d")
                 prompt = f"""
-                Kamu adalah robot kasir yang bertugas mengekstrak teks menjadi JSON Array terstruktur.
+                Kamu adalah robot kasir yang bertugas mengekstrak teks menjadi JSON Array terstruktur secara vertikal (baris demi baris).
                 Tanggal hari ini adalah {hari_ini}.
-                Analisis teks berikut dan pecah menjadi beberapa item transaksi, baik berupa pengeluaran maupun pemasukan: '{input_user}'
+                Analisis teks pendapatan atau pengeluaran berikut secara mendetail: '{input_user}'
                 
-                Hasilkan output dalam format JSON array yang kaku seperti contoh ini:
+                ATURAN MUTLAK PEMECAHAN DATA:
+                1. Setiap jenis komponen pendapatan yang disebutkan (misal: Gaji Pokok, Tukin, Uang SPD, Insentif) HARUS dipisah menjadi baris tersendiri dengan tipe "Catatan" untuk histori pelacakan karir.
+                2. Setiap nominal uang yang benar-benar dimasukkan ke dalam kas bersama/tabungan bersama HARUS dijadikan baris tersendiri dengan tipe "Pemasukan".
+                3. Jangan menggabungkan nominal komponen histori ke dalam nominal pemasukan kas. Biarkan terpisah secara vertikal.
+                
+                CONTOH OUTPUT JSON ARRAY YANG WAJIB DIKUTIP (Kaku tanpa markdown):
                 [
-                  {{"tanggal": "{hari_ini}", "nominal": 25000, "kategori": "Makanan", "keterangan": "Lontong sayur", "tipe": "Pengeluaran"}},
-                  {{"tanggal": "{hari_ini}", "nominal": 7500000, "kategori": "Gaji", "keterangan": "Transfer gaji bulanan", "tipe": "Pemasukan"}}
+                  {{"tanggal": "{hari_ini}", "nominal": 3000000, "kategori": "Gaji", "keterangan": "Gaji Pokok Suami", "tipe": "Catatan"}},
+                  {{"tanggal": "{hari_ini}", "nominal": 7000000, "kategori": "Gaji", "keterangan": "Tukin Bulanan Suami", "tipe": "Catatan"}},
+                  {{"tanggal": "{hari_ini}", "nominal": 8000000, "kategori": "Gaji", "keterangan": "Setoran Kas Bersama Suami", "tipe": "Pemasukan"}},
+                  {{"tanggal": "{hari_ini}", "nominal": 2000000, "kategori": "Gaji", "keterangan": "Gaji Pokok Istri", "tipe": "Catatan"}},
+                  {{"tanggal": "{hari_ini}", "nominal": 6000000, "kategori": "Gaji", "keterangan": "Tukin Bulanan Istri", "tipe": "Catatan"}},
+                  {{"tanggal": "{hari_ini}", "nominal": 5000000, "kategori": "Gaji", "keterangan": "Uang SPD Istri", "tipe": "Catatan"}},
+                  {{"tanggal": "{hari_ini}", "nominal": 8000000, "kategori": "Gaji", "keterangan": "Setoran Kas Bersama Istri", "tipe": "Pemasukan"}}
                 ]
                 
                 Pilihan Kategori WAJIB salah satu dari: [Makanan, Transportasi, Tagihan, Belanja, Hiburan, Gaji, Lainnya]
-                Pilihan Tipe WAJIB salah satu dari: [Pengeluaran, Pemasukan]
+                Pilihan Tipe WAJIB salah satu dari: [Pengeluaran, Pemasukan, Catatan]
                 JANGAN berikan teks pengantar, penutup, atau markdown ```json. HANYA OUTPUT JSON RAW.
                 """
                 
@@ -132,7 +142,7 @@ if st.session_state.data_pilihan:
             st.session_state.data_pilihan = None   
             
             # 3. Siapkan pesan sukses untuk dimuat setelah halaman direfresh
-            st.session_state.notif_sukses = f"🎉 Sukses! {len(rows_to_append)} transaksi telah tercatat di Google Sheets."
+            st.session_state.notif_sukses = f"🎉 Sukses! {len(rows_to_append)} komponen transaksi telah tercatat di Google Sheets."
             
             # 4. Paksa Streamlit memuat ulang halaman secara bersih
             st.rerun()
