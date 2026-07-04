@@ -15,7 +15,7 @@ import io
 NAMA_SPREADSHEET = "pencatat-keuangan" 
 URL_LOOKER_STUDIO = "https://datastudio.google.com/s/mHCWurmgDmc"
 
-# WAJIB GANTI: Masukkan ID Folder Google Drive yang sudah di-share ke Service Account
+# ID Folder Google Drive milikmu
 FOLDER_ID_DRIVE = "1Vb-_NLggBSOQ8d3Hk5tSmKMEoT4ijQmz"
 
 client = genai.Client()
@@ -32,11 +32,8 @@ def init_google_services():
     else:
         creds = Credentials.from_service_account_file("kunci-google.json", scopes=scopes)
         
-    # Koneksi Google Sheets
     gc = gspread.authorize(creds)
     sheet = gc.open(NAMA_SPREADSHEET).get_worksheet(0)
-    
-    # Koneksi Google Drive API
     drive_service = build("drive", "v3", credentials=creds)
     
     return sheet, drive_service
@@ -75,20 +72,31 @@ if "link_nota_terunggah" not in st.session_state:
 # INPUT 1: Teks Narasi Transaksi
 input_user = st.text_area("Ketik rincian pendapatan/pengeluaran secara mendetail di sini:", key="teks_input_user")
 
-# INPUT 2: Kamera Penangkap Nota Fisik
-foto_nota = st.camera_input("📷 Ambil Foto Nota (Opsional)")
+# FIX UX: Menyediakan opsi pilihan agar kamera tidak langsung menyala otomatis
+sumber_nota = st.radio(
+    "Apakah ingin melampirkan foto nota fisik?",
+    ["Tidak", "Buka Kamera (Foto Instan)", "Pilih dari Galeri (Upload File)"],
+    horizontal=True
+)
 
-# LOGIKA UTAMA: Unggah & Kompres Foto Nota Langsung Saat Kamera Aktif
-if foto_nota and st.session_state.link_nota_terunggah is None:
+# Wadah tunggal untuk menampung berkas dari salah satu sumber
+berkas_nota = None
+
+if sumber_nota == "Buka Kamera (Foto Instan)":
+    berkas_nota = st.camera_input("📷 Ambil Foto Nota")
+elif sumber_nota == "Pilih dari Galeri (Upload File)":
+    berkas_nota = st.file_uploader("📁 Pilih file foto nota dari penyimpanan HP/Laptop", type=["jpg", "jpeg", "png"])
+
+# LOGIKA UTAMA: Unggah & Kompres Foto Nota (Mendukung Kamera maupun Galeri)
+if berkas_nota and st.session_state.link_nota_terunggah is None:
     with st.spinner("Mengompres gambar & mengunggah ke Google Drive..."):
         try:
-            # Kompresi instan menggunakan Pillow
-            gambar_mentah = Image.open(foto_nota)
+            gambar_mentah = Image.open(berkas_nota)
             if gambar_mentah.mode in ("RGBA", "P"):
                 gambar_mentah = gambar_mentah.convert("RGB")
             
             aliran_bytes = io.BytesIO()
-            # Menyusutkan kualitas ke 60% untuk menghemat penyimpanan hingga 90%
+            # Kualitas ditahan di 60% agar hemat ruang penyimpanan tanpa merusak teks nota
             gambar_mentah.save(aliran_bytes, format="JPEG", quality=60)
             aliran_bytes.seek(0)
             
@@ -101,7 +109,7 @@ if foto_nota and st.session_state.link_nota_terunggah is None:
             media = MediaIoBaseUpload(aliran_bytes, mimetype="image/jpeg", resumable=True)
             berkas_drive = drive_service.files().create(body=metadata_file, media_body=media, fields="id, webViewLink").execute()
             
-            # Mengubah akses berkas menjadi publik agar tautannya bisa dibaca Looker Studio
+            # Ubah izin akses ke publik agar Looker Studio bisa menarik gambarnya
             drive_service.permissions().create(
                 fileId=berkas_drive.get("id"),
                 body={"type": "anyone", "role": "reader"}
@@ -153,9 +161,8 @@ if st.session_state.data_pilihan:
     st.markdown("---")
     st.subheader("📋 Verifikasi Data Hasil AI")
     
-    # Tampilkan info jika nota fisik berhasil dilampirkan
     if st.session_state.link_nota_terunggah:
-        st.info(f"🔗 Nota fisik terdeteksi dan akan ditautkan otomatis ke seluruh baris di bawah ini.")
+        st.info(f"🔗 Tautan berkas digital siap dilampirkan otomatis ke spreadsheet.")
         
     edited_df = st.data_editor(
         st.session_state.data_pilihan, 
@@ -167,7 +174,6 @@ if st.session_state.data_pilihan:
     
     if st.button("Simpan ke Google Sheets"):
         rows_to_append = []
-        # Ambil tautan nota yang tersimpan di session state (jika tidak ada, beri tanda kaku "-")
         tautan_nota = st.session_state.get("link_nota_terunggah", "-")
         
         for item in edited_df:
@@ -178,12 +184,12 @@ if st.session_state.data_pilihan:
                     item.get("kategori"),
                     item.get("keterangan"),
                     item.get("tipe", "Pengeluaran"),
-                    tautan_nota  # URL masuk secara vertikal ke Kolom F
+                    tautan_nota
                 ])
         
         if rows_to_append:
             sheet.append_rows(rows_to_append)
-            st.session_state.notif_sukses = f"🎉 Sukses! {len(rows_to_append)} komponen transaksi beserta nota digital telah aman di spreadsheet."
+            st.session_state.notif_sukses = f"🎉 Sukses! {len(rows_to_append)} komponen transaksi beserta berkas digital telah aman di spreadsheet."
             st.session_state.harus_reset = True
             st.rerun()
         else:
