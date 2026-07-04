@@ -16,7 +16,7 @@ from PIL import Image
 NAMA_SPREADSHEET = "pencatat-keuangan"
 URL_LOOKER_STUDIO = "https://datastudio.google.com/s/mHCWurmgDmc"
 
-# ID Folder Google Drive milikmu yang valid
+# ID Folder Google Drive milikmu
 ID_FOLDER_DRIVE = "1Vb-_NLggBSOQ8d3Hk5tSmKMEoT4ijQmz"
 
 client = genai.Client()
@@ -71,7 +71,6 @@ if st.button("Ekstrak Data dengan AI", type="primary"):
             try:
                 hari_ini = datetime.date.today().strftime("%Y-%m-%d")
                 
-                # FIX PROMPT: Memaksa pendaftaran seluruh item tanpa toleransi pemotongan (Anti-dst)
                 prompt = f"""
                 Kamu adalah robot kasir yang bertugas merangkum nota belanjaan menjadi TEPAT SATU baris transaksi JSON Array.
                 Tanggal hari ini adalah {hari_ini}.
@@ -90,9 +89,6 @@ if st.button("Ekstrak Data dengan AI", type="primary"):
                     "keterangan": "Belanja Superindo\\n- Barang A: 10000\\n- Barang B: 20000\\nSub Total: 30000\\nHemat: 0"
                   }}
                 ]
-                
-                Pilihan Kategori WAJIB salah satu dari: [Makanan, Transportasi, Tagihan, Belanja, Hiburan, Lainnya]
-                JANGAN berikan teks pengantar, penutup, atau markdown ```json. HANYA OUTPUT JSON RAW.
                 """
                 
                 if berkas_nota:
@@ -113,9 +109,13 @@ if st.button("Ekstrak Data dengan AI", type="primary"):
                     input_gemini = [f"{prompt}\nTeks dari user: '{input_user}'"]
                     st.session_state.berkas_mentah = None
                 
+                # FIX UTAMA: Menyuntikkan GenerateContentConfig untuk mengunci output format JSON murni
                 response = client.models.generate_content(
                     model="gemini-2.5-flash",
-                    contents=input_gemini
+                    contents=input_gemini,
+                    config=types.GenerateContentConfig(
+                        response_mime_type="application/json"
+                    )
                 )
                 
                 parsed_json = json.loads(response.text.strip())
