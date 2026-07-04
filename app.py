@@ -16,9 +16,12 @@ client = genai.Client()
 def init_google_sheets():
     scopes = ["https://www.googleapis.com/auth/spreadsheets", "https://www.googleapis.com/auth/drive"]
     
+    # KONDISI 1: Jika berjalan di Cloud Server Streamlit
     if "RAW_GA_JSON" in st.secrets:
         info_kunci = json.loads(st.secrets["RAW_GA_JSON"])
         creds = Credentials.from_service_account_info(info_kunci, scopes=scopes)
+    
+    # KONDISI 2: Jika berjalan di Lokal Laptop Kamu
     else:
         creds = Credentials.from_service_account_file("kunci-google.json", scopes=scopes)
         
@@ -37,7 +40,7 @@ except Exception as e:
 st.set_page_config(page_title="AI Finance Logger v3", layout="centered")
 st.title("💰 AI Finance Logger v3.0 (Anti-Break)")
 
-# Menampilkan notifikasi jika ada pesan sukses yang tersimpan di session state
+# Pengecek notifikasi sukses setelah halaman dimuat ulang (Rerun)
 if "notif_sukses" in st.session_state and st.session_state.notif_sukses:
     st.success(st.session_state.notif_sukses)
     st.session_state.notif_sukses = "" 
@@ -48,8 +51,8 @@ st.markdown("---")
 if "data_pilihan" not in st.session_state:
     st.session_state.data_pilihan = None
 
-# FIX: Hanya gunakan SATU text area dengan key yang terikat langsung ke sistem reset
-input_user = st.text_area("Ketik satu atau beberapa pengeluaran sekaligus di sini:", key="teks_input_user")
+# HANYA GUNAKAN SATU TEXT AREA (Key terikat dengan sistem pembersihan otomatis)
+input_user = st.text_area("Ketik satu atau beberapa transaksi sekaligus di sini (bisa pengeluaran maupun pemasukan):", key="teks_input_user")
 
 if st.button("Ekstrak Data dengan AI", type="primary"):
     if input_user:
@@ -59,19 +62,20 @@ if st.button("Ekstrak Data dengan AI", type="primary"):
                 prompt = f"""
                 Kamu adalah robot kasir yang bertugas mengekstrak teks menjadi JSON Array terstruktur.
                 Tanggal hari ini adalah {hari_ini}.
-                Analisis teks berikut dan pecah menjadi beberapa item transaksi jika pengguna menyebutkan beberapa pengeluaran: '{input_user}'
+                Analisis teks berikut dan pecah menjadi beberapa item transaksi, baik berupa pengeluaran maupun pemasukan: '{input_user}'
                 
                 Hasilkan output dalam format JSON array yang kaku seperti contoh ini:
                 [
-                  {{"tanggal": "{hari_ini}", "nominal": 25000, "kategori": "Makanan", "keterangan": "Lontong sayur"}},
-                  {{"tanggal": "{hari_ini}", "nominal": 5000, "kategori": "Lainnya", "keterangan": "Gemblong"}}
+                  {{"tanggal": "{hari_ini}", "nominal": 25000, "kategori": "Makanan", "keterangan": "Lontong sayur", "tipe": "Pengeluaran"}},
+                  {{"tanggal": "{hari_ini}", "nominal": 7500000, "kategori": "Gaji", "keterangan": "Transfer gaji bulanan", "tipe": "Pemasukan"}}
                 ]
                 
-                Pilihan Kategori WAJIB salah satu dari: [Makanan, Transportasi, Tagihan, Belanja, Hiburan, Lainnya]
+                Pilihan Kategori WAJIB salah satu dari: [Makanan, Transportasi, Tagihan, Belanja, Hiburan, Gaji, Lainnya]
+                Pilihan Tipe WAJIB salah satu dari: [Pengeluaran, Pemasukan]
                 JANGAN berikan teks pengantar, penutup, atau markdown ```json. HANYA OUTPUT JSON RAW.
                 """
                 
-                # Menggunakan syntax milikmu yang sudah terbukti bekerja di environment-mu
+                # Menggunakan model pilihan dan sintaks yang sudah terbukti bekerja di environment-mu
                 response = client.interactions.create(
                     model="gemini-3.5-flash",
                     input=prompt
@@ -93,7 +97,7 @@ if st.session_state.data_pilihan:
     st.subheader("📋 Verifikasi Data Hasil AI")
     st.caption("Kamu bisa mengubah langsung data di bawah ini jika tebakan AI ada yang keliru sebelum disimpan.")
     
-    # Menampilkan data ke dalam tabel interaktif lengkap dengan format pemisah ribuan
+    # Tabel interaktif dengan konfigurasi pemisah ribuan pada kolom nominal
     edited_df = st.data_editor(
         st.session_state.data_pilihan, 
         num_rows="dynamic",
@@ -108,28 +112,29 @@ if st.session_state.data_pilihan:
     if st.button("Simpan ke Google Sheets"):
         rows_to_append = []
         for item in edited_df:
-            # Menyaring baris kosong (None) agar tidak mengotori database spreadsheet
+            # Saringan ketat: Abaikan baris kosong (None) agar database tidak kotor
             if item.get("tanggal") and item.get("nominal") is not None:
                 rows_to_append.append([
                     item.get("tanggal"),
                     int(item.get("nominal")),
                     item.get("kategori"),
                     item.get("keterangan"),
-                    "-"
+                    item.get("tipe", "Pengeluaran"),
+                    item.get("link_nota", "-")  # Mengisi Kolom F (Link Nota) secara aman dengan default "-"
                 ])
         
         if rows_to_append:
-            # 1. Kirim data bersih ke Google Sheets
+            # 1. Kirim paket 6 kolom data sekaligus ke spreadsheet
             sheet.append_rows(rows_to_append)
             
-            # 2. SINKRONISASI: Mengosongkan text area utama dan menghilangkan tabel verifikasi
+            # 2. Reset semua state (Text area kosong & Tabel verifikasi hilang)
             st.session_state.teks_input_user = ""  
             st.session_state.data_pilihan = None   
             
-            # 3. Set notifikasi untuk dimunculkan pasca rerun
+            # 3. Siapkan pesan sukses untuk dimuat setelah halaman direfresh
             st.session_state.notif_sukses = f"🎉 Sukses! {len(rows_to_append)} transaksi telah tercatat di Google Sheets."
             
-            # 4. Paksa halaman memuat ulang dengan kondisi form kosong
+            # 4. Paksa Streamlit memuat ulang halaman secara bersih
             st.rerun()
         else:
             st.warning("Tidak ada data transaksi valid yang bisa disimpan.")
