@@ -16,13 +16,9 @@ client = genai.Client()
 def init_google_sheets():
     scopes = ["https://www.googleapis.com/auth/spreadsheets", "https://www.googleapis.com/auth/drive"]
     
-    # KONDISI 1: Jika berjalan di Cloud Server Streamlit
     if "RAW_GA_JSON" in st.secrets:
-        import json
         info_kunci = json.loads(st.secrets["RAW_GA_JSON"])
         creds = Credentials.from_service_account_info(info_kunci, scopes=scopes)
-    
-    # KONDISI 2: Jika berjalan di Lokal Laptop Kamu
     else:
         creds = Credentials.from_service_account_file("kunci-google.json", scopes=scopes)
         
@@ -40,14 +36,20 @@ except Exception as e:
 # ==========================================
 st.set_page_config(page_title="AI Finance Logger v3", layout="centered")
 st.title("💰 AI Finance Logger v3.0 (Anti-Break)")
+
+# Menampilkan notifikasi jika ada pesan sukses yang tersimpan di session state
+if "notif_sukses" in st.session_state and st.session_state.notif_sukses:
+    st.success(st.session_state.notif_sukses)
+    st.session_state.notif_sukses = "" 
+
 st.link_button("📊 Buka Dasbor Looker Studio", URL_LOOKER_STUDIO)
 st.markdown("---")
 
-# Inisialisasi tempat penyimpanan sementara data hasil AI
 if "data_pilihan" not in st.session_state:
     st.session_state.data_pilihan = None
 
-input_user = st.text_area("Ketik satu atau beberapa pengeluaran sekaligus di sini:")
+# FIX: Hanya gunakan SATU text area dengan key yang terikat langsung ke sistem reset
+input_user = st.text_area("Ketik satu atau beberapa pengeluaran sekaligus di sini:", key="teks_input_user")
 
 if st.button("Ekstrak Data dengan AI", type="primary"):
     if input_user:
@@ -69,17 +71,17 @@ if st.button("Ekstrak Data dengan AI", type="primary"):
                 JANGAN berikan teks pengantar, penutup, atau markdown ```json. HANYA OUTPUT JSON RAW.
                 """
                 
+                # Menggunakan syntax milikmu yang sudah terbukti bekerja di environment-mu
                 response = client.interactions.create(
                     model="gemini-3.5-flash",
                     input=prompt
                 )
                 
-                # Mengubah teks balasan Gemini menjadi Objek List/Dictionary Python
                 parsed_json = json.loads(response.output_text.strip())
                 st.session_state.data_pilihan = parsed_json
                 
             except Exception as e:
-                st.error(f"Gagal memproses teks. Pastikan format input logis. Eror: {e}")
+                st.error(f"Gagal memproses teks. Eror: {e}")
     else:
         st.warning("Input tidak boleh kosong.")
 
@@ -91,35 +93,43 @@ if st.session_state.data_pilihan:
     st.subheader("📋 Verifikasi Data Hasil AI")
     st.caption("Kamu bisa mengubah langsung data di bawah ini jika tebakan AI ada yang keliru sebelum disimpan.")
     
-    # Menampilkan data ke dalam tabel interaktif yang bisa diedit pengguna
+    # Menampilkan data ke dalam tabel interaktif lengkap dengan format pemisah ribuan
     edited_df = st.data_editor(
-    st.session_state.data_pilihan, 
-    num_rows="dynamic",
-    column_config={
-        "nominal": st.column_config.NumberColumn(
-            "Nominal",
-            format="%d",  # Menampilkan angka bulat bersih di Google Sheets
-        )
-    }
-)
+        st.session_state.data_pilihan, 
+        num_rows="dynamic",
+        column_config={
+            "nominal": st.column_config.NumberColumn(
+                "Nominal",
+                format="%,d",  
+            )
+        }
+    )
     
-    if st.button("Simpan ke Google Sheets", type="secondary"):
-        with st.spinner("Menulis ke spreadsheet..."):
-            try:
-                rows_to_append = []
-                for item in edited_df:
-                    rows_to_append.append([
-                        item.get("tanggal"),
-                        item.get("nominal"),
-                        item.get("kategori"),
-                        item.get("keterangan"),
-                        "-"  # <--- Tambahan untuk mengisi kolom ke-5 (Link_Nota)
-                    ])
-                
-                # Masukkan semua baris sekaligus ke Google Sheets
-                sheet.append_rows(rows_to_append)
-                st.success("🎉 Data sukses ditambahkan ke Google Sheets!")
-                st.session_state.data_pilihan = None # Reset form
-                st.rerun()
-            except Exception as e:
-                st.error(f"Gagal menyimpan data: {e}")
+    if st.button("Simpan ke Google Sheets"):
+        rows_to_append = []
+        for item in edited_df:
+            # Menyaring baris kosong (None) agar tidak mengotori database spreadsheet
+            if item.get("tanggal") and item.get("nominal") is not None:
+                rows_to_append.append([
+                    item.get("tanggal"),
+                    int(item.get("nominal")),
+                    item.get("kategori"),
+                    item.get("keterangan"),
+                    "-"
+                ])
+        
+        if rows_to_append:
+            # 1. Kirim data bersih ke Google Sheets
+            sheet.append_rows(rows_to_append)
+            
+            # 2. SINKRONISASI: Mengosongkan text area utama dan menghilangkan tabel verifikasi
+            st.session_state.teks_input_user = ""  
+            st.session_state.data_pilihan = None   
+            
+            # 3. Set notifikasi untuk dimunculkan pasca rerun
+            st.session_state.notif_sukses = f"🎉 Sukses! {len(rows_to_append)} transaksi telah tercatat di Google Sheets."
+            
+            # 4. Paksa halaman memuat ulang dengan kondisi form kosong
+            st.rerun()
+        else:
+            st.warning("Tidak ada data transaksi valid yang bisa disimpan.")
