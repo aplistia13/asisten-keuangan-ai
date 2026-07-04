@@ -50,11 +50,12 @@ except Exception as e:
 st.set_page_config(page_title="AI Finance Logger v3", layout="centered")
 st.title("💰 AI Finance Logger v3.0 (Anti-Break)")
 
-# PEMBERSIHAN STATE OTOMATIS
+# PEMBERSIHAN STATE OTOMATIS (Termasuk Reset Mode Nota)
 if st.session_state.get("harus_reset", False):
     st.session_state.teks_input_user = ""
     st.session_state.data_pilihan = None
     st.session_state.link_nota_terunggah = None
+    st.session_state.mode_nota = None  # Reset pilihan tombol kotak ke posisi awal
     st.session_state.harus_reset = False
 
 if "notif_sukses" in st.session_state and st.session_state.notif_sukses:
@@ -68,26 +69,41 @@ if "data_pilihan" not in st.session_state:
     st.session_state.data_pilihan = None
 if "link_nota_terunggah" not in st.session_state:
     st.session_state.link_nota_terunggah = None
+if "mode_nota" not in st.session_state:
+    st.session_state.mode_nota = None
 
 # INPUT 1: Teks Narasi Transaksi
 input_user = st.text_area("Ketik rincian pendapatan/pengeluaran secara mendetail di sini:", key="teks_input_user")
 
-# FIX UX: Menyediakan opsi pilihan agar kamera tidak langsung menyala otomatis
-sumber_nota = st.radio(
-    "Apakah ingin melampirkan foto nota fisik?",
-    ["Tidak", "Buka Kamera (Foto Instan)", "Pilih dari Galeri (Upload File)"],
-    horizontal=True
-)
+# FIX UI: Mengganti radio button bulat dengan dua Tombol Kotak sejajar (Columns)
+st.write("📸 **Lampiran Nota Digital (Opsional)**")
+col1, col2 = st.columns(2)
+with col1:
+    if st.button("📷 Kamera Instan", use_container_width=True):
+        st.session_state.mode_nota = "kamera"
+with col2:
+    if st.button("📁 Ambil dari Galeri", use_container_width=True):
+        st.session_state.mode_nota = "galeri"
 
-# Wadah tunggal untuk menampung berkas dari salah satu sumber
+# Wadah penampung berkas biner
 berkas_nota = None
 
-if sumber_nota == "Buka Kamera (Foto Instan)":
-    berkas_nota = st.camera_input("📷 Ambil Foto Nota")
-elif sumber_nota == "Pilih dari Galeri (Upload File)":
-    berkas_nota = st.file_uploader("📁 Pilih file foto nota dari penyimpanan HP/Laptop", type=["jpg", "jpeg", "png"])
+# Memunculkan widget secara dinamis berdasarkan tombol kotak yang ditekan
+if st.session_state.mode_nota == "kamera":
+    berkas_nota = st.camera_input("📷 Silakan Ambil Foto")
+    if st.button("❌ Batalkan/Tutup Kamera", type="secondary", use_container_width=True):
+        st.session_state.mode_nota = None
+        st.session_state.link_nota_terunggah = None
+        st.rerun()
 
-# LOGIKA UTAMA: Unggah & Kompres Foto Nota (Mendukung Kamera maupun Galeri)
+elif st.session_state.mode_nota == "galeri":
+    berkas_nota = st.file_uploader("📁 Pilih berkas foto nota dari penyimpanan", type=["jpg", "jpeg", "png"])
+    if st.button("❌ Batalkan/Hapus File", type="secondary", use_container_width=True):
+        st.session_state.mode_nota = None
+        st.session_state.link_nota_terunggah = None
+        st.rerun()
+
+# LOGIKA UTAMA: Unggah & Kompres Foto Nota ke Google Drive
 if berkas_nota and st.session_state.link_nota_terunggah is None:
     with st.spinner("Mengompres gambar & mengunggah ke Google Drive..."):
         try:
@@ -96,7 +112,6 @@ if berkas_nota and st.session_state.link_nota_terunggah is None:
                 gambar_mentah = gambar_mentah.convert("RGB")
             
             aliran_bytes = io.BytesIO()
-            # Kualitas ditahan di 60% agar hemat ruang penyimpanan tanpa merusak teks nota
             gambar_mentah.save(aliran_bytes, format="JPEG", quality=60)
             aliran_bytes.seek(0)
             
@@ -109,7 +124,6 @@ if berkas_nota and st.session_state.link_nota_terunggah is None:
             media = MediaIoBaseUpload(aliran_bytes, mimetype="image/jpeg", resumable=True)
             berkas_drive = drive_service.files().create(body=metadata_file, media_body=media, fields="id, webViewLink").execute()
             
-            # Ubah izin akses ke publik agar Looker Studio bisa menarik gambarnya
             drive_service.permissions().create(
                 fileId=berkas_drive.get("id"),
                 body={"type": "anyone", "role": "reader"}
@@ -119,6 +133,8 @@ if berkas_nota and st.session_state.link_nota_terunggah is None:
             st.toast("📷 Berkas nota sukses dikompres dan disimpan ke Drive!", icon="✅")
         except Exception as e:
             st.error(f"Sistem gagal mengamankan berkas foto: {e}")
+
+st.markdown("---")
 
 # TOMBOL 3: Proses Struktur Data dengan AI
 if st.button("Ekstrak Data dengan AI", type="primary"):
