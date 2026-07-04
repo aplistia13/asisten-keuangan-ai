@@ -3,8 +3,6 @@ import gspread
 from google.oauth2.service_account import Credentials
 from google import genai
 from google.genai import types  
-from googleapiclient.discovery import build
-from googleapiclient.http import MediaIoBaseUpload
 import datetime
 import json
 import io
@@ -16,16 +14,10 @@ from PIL import Image
 NAMA_SPREADSHEET = "pencatat-keuangan"
 URL_LOOKER_STUDIO = "https://datastudio.google.com/s/mHCWurmgDmc"
 
-# ID Folder Google Drive milikmu
-ID_FOLDER_DRIVE = "1Vb-_NLggBSOQ8d3Hk5tSmKMEoT4ijQmz"
-
 client = genai.Client()
 
-def init_google_services():
-    scopes = [
-        "https://www.googleapis.com/auth/spreadsheets", 
-        "https://www.googleapis.com/auth/drive"
-    ]
+def init_google_sheets():
+    scopes = ["https://www.googleapis.com/auth/spreadsheets", "https://www.googleapis.com/auth/drive"]
     
     if "RAW_GA_JSON" in st.secrets:
         info_kunci = json.loads(st.secrets["RAW_GA_JSON"])
@@ -34,14 +26,12 @@ def init_google_services():
         creds = Credentials.from_service_account_file("kunci-google.json", scopes=scopes)
         
     sheet = gspread.authorize(creds).open(NAMA_SPREADSHEET).get_worksheet(0)
-    drive_service = build('drive', 'v3', credentials=creds)
-    
-    return sheet, drive_service
+    return sheet
 
 try:
-    sheet, drive_service = init_google_services()
+    sheet = init_google_sheets()
 except Exception as e:
-    st.error(f"Gagal terhubung ke layanan Google: {e}")
+    st.error(f"Gagal terhubung ke layanan Google Sheets: {e}")
     st.stop()
 
 # ==========================================
@@ -59,8 +49,6 @@ st.markdown("---")
 
 if "data_pilihan" not in st.session_state:
     st.session_state.data_pilihan = None
-if "berkas_mentah" not in st.session_state:
-    st.session_state.berkas_mentah = None
 
 input_user = st.text_area("Ketik catatan tambahan / konteks (misal: 'Belanja Superindo'):", key="teks_input_user")
 berkas_nota = st.file_uploader("📸 Atau upload Nota / berkas PDF belanja kamu:", type=["jpg", "jpeg", "png", "pdf"])
@@ -93,12 +81,6 @@ if st.button("Ekstrak Data dengan AI", type="primary"):
                 
                 if berkas_nota:
                     file_bytes = berkas_nota.read()
-                    st.session_state.berkas_mentah = {
-                        "bytes": file_bytes,
-                        "name": berkas_nota.name,
-                        "type": berkas_nota.type
-                    }
-                    
                     if berkas_nota.type == "application/pdf":
                         dokumen_pdf = types.Part.from_bytes(data=file_bytes, mime_type="application/pdf")
                         input_gemini = [prompt, dokumen_pdf]
@@ -107,9 +89,8 @@ if st.button("Ekstrak Data dengan AI", type="primary"):
                         input_gemini = [prompt, gambar]
                 else:
                     input_gemini = [f"{prompt}\nTeks dari user: '{input_user}'"]
-                    st.session_state.berkas_mentah = None
                 
-                # FIX UTAMA: Menyuntikkan GenerateContentConfig untuk mengunci output format JSON murni
+                # Mengunci output format JSON murni via SDK resmi
                 response = client.models.generate_content(
                     model="gemini-2.5-flash",
                     contents=input_gemini,
@@ -142,42 +123,9 @@ if st.session_state.data_pilihan:
         }
     )
     
-    if st.button("Simpan ke Google Sheets & Drive"):
-        with st.spinner("Sedang mengamankan data dan memproses berkas..."):
+    if st.button("Simpan ke Google Sheets"):
+        with st.spinner("Sedang mengamankan data ke Spreadsheet..."):
             try:
-                link_drive = "-"
-                
-                if st.session_state.berkas_mentah:
-                    bm = st.session_state.berkas_mentah
-                    
-                    if bm["type"].startswith("image/") or bm["type"] in ["image/jpeg", "image/png", "image/jpg"]:
-                        img = Image.open(io.BytesIO(bm["bytes"]))
-                        if img.mode in ("RGBA", "P"):
-                            img = img.convert("RGB")
-                        
-                        img_buffer = io.BytesIO()
-                        img.save(img_buffer, format="JPEG", quality=60, optimize=True)
-                        data_unggah = img_buffer.getvalue()
-                        
-                        nama_bersih = bm["name"].rsplit(".", 1)[0]
-                        nama_file_drive = f"{nama_bersih}_compressed.jpg"
-                        mime_drive = "image/jpeg"
-                    else:
-                        data_unggah = bm["bytes"]
-                        nama_file_drive = bm["name"]
-                        mime_drive = bm["type"]
-                    
-                    media = MediaIoBaseUpload(io.BytesIO(data_unggah), mimetype=mime_drive, resumable=True)
-                    file_metadata = {'name': nama_file_drive, 'parents': [ID_FOLDER_DRIVE]}
-                    
-                    file_drive = drive_service.files().create(
-                        body=file_metadata, 
-                        media_body=media, 
-                        fields='webViewLink'
-                    ).execute()
-                    
-                    link_drive = file_drive.get('webViewLink', '-')
-                
                 rows_to_append = []
                 for item in edited_df:
                     if item.get("tanggal") and item.get("nominal") is not None:
@@ -186,7 +134,7 @@ if st.session_state.data_pilihan:
                             int(item.get("nominal")),
                             item.get("kategori"),
                             item.get("keterangan"),
-                            link_drive
+                            "-"  # Kolom kelima tetap diisi minus karena jalur Drive dimatikan
                         ])
                 
                 if rows_to_append:
@@ -194,11 +142,10 @@ if st.session_state.data_pilihan:
                     
                     st.session_state.teks_input_user = ""
                     st.session_state.data_pilihan = None
-                    st.session_state.berkas_mentah = None
                     
-                    st.session_state.notif_sukses = f"🎉 Sukses! Data masuk Sheets dan bukti file aman di Drive."
+                    st.session_state.notif_sukses = f"🎉 Sukses! Rangkuman belanja 100% tercatat di Google Sheets."
                     st.rerun()
                 else:
                     st.warning("Tidak ada data transaksi valid.")
             except Exception as e:
-                st.error(f"Eror saat proses simpan/upload: {e}")
+                st.error(f"Eror saat proses simpan ke Sheets: {e}")
