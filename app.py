@@ -16,7 +16,7 @@ from PIL import Image
 NAMA_SPREADSHEET = "pencatat-keuangan"
 URL_LOOKER_STUDIO = "https://datastudio.google.com/s/mHCWurmgDmc"
 
-# ID Folder Google Drive milikmu yang sudah steril
+# ID Folder Google Drive milikmu
 ID_FOLDER_DRIVE = "1Vb-_NLggBSOQ8d3Hk5tSmKMEoT4ijQmz"
 
 client = genai.Client()
@@ -76,17 +76,17 @@ if st.button("Ekstrak Data dengan AI", type="primary"):
                 Tanggal hari ini adalah {hari_ini}.
                 
                 Aturan Ekstraksi Kaku:
-                1. 'nominal': Isi dengan TOTAL AKHIR / GRAND TOTAL (angka bersih setelah dikurangi diskon) yang tertera di nota. Wajib berupa angka/integer murni tanpa titik/koma.
-                2. 'keterangan': Susun string multi-line terstruktur. Mulai dengan teks konteks dari user: '{input_user}'. Di baris-baris berikutnya, sebutkan beberapa item barang penting yang dibeli, subtotal/jumlah awal, nilai diskon yang didapat, dan informasi relevan lainnya dari nota. Gunakan tanda '\\n' untuk memisahkan setiap baris rincian agar rapi.
+                1. 'nominal': Isi dengan TOTAL AKHIR / GRAND TOTAL / Net Pembayaran setelah diskon (contoh: jika subtotal 481544, isi dengan 481544). Wajib berupa angka/integer murni tanpa titik atau koma.
+                2. 'keterangan': Susun string multi-line terstruktur. Mulai dengan teks konteks dari user: '{input_user}'. Di baris-baris berikutnya, sebutkan beberapa item barang penting yang dibeli beserta harganya, nilai Total awal, dan nilai total hemat/diskon dari nota. Gunakan tanda '\\n' untuk memisahkan setiap baris rincian agar rapi.
                 3. 'kategori': Pilih satu kategori utama yang paling mewakili seluruh pengeluaran di nota ini.
                 
                 Hasilkan output dalam format JSON array dengan TEPAT SATU objek kaku seperti contoh ini:
                 [
                   {{
                     "tanggal": "{hari_ini}", 
-                    "nominal": 972000, 
+                    "nominal": 481544, 
                     "kategori": "Belanja", 
-                    "keterangan": "Belanja Superindo\\n- Minum: 2000\\n- Biskuit: 10000\\nJumlah: 1002000\\nDiskon: 30000"
+                    "keterangan": "Belanja Superindo\\n- Royale Hot: 16890\\n- Royale Blu: 15690\\n- Ekonomi Nanas: 8390\\n- dst\\nTotal: 481544\\nHemat Total: 140421"
                   }}
                 ]
                 
@@ -103,21 +103,23 @@ if st.button("Ekstrak Data dengan AI", type="primary"):
                     }
                     
                     if berkas_nota.type == "application/pdf":
+                        # Format biner PDF yang benar untuk SDK resmi
                         dokumen_pdf = types.Part.from_bytes(data=file_bytes, mime_type="application/pdf")
                         input_gemini = [prompt, dokumen_pdf]
                     else:
                         gambar = Image.open(io.BytesIO(file_bytes))
                         input_gemini = [prompt, gambar]
                 else:
-                    input_gemini = f"{prompt}\nTeks dari user: '{input_user}'"
+                    input_gemini = [f"{prompt}\nTeks dari user: '{input_user}'"]
                     st.session_state.berkas_mentah = None
                 
-                response = client.interactions.create(
-                    model="gemini-3.5-flash",
-                    input=input_gemini
+                # FIX: Menggunakan metode dan model resmi google-genai SDK untuk ekstraksi konten
+                response = client.models.generate_content(
+                    model="gemini-2.5-flash",
+                    contents=input_gemini
                 )
                 
-                parsed_json = json.loads(response.output_text.strip())
+                parsed_json = json.loads(response.text.strip())
                 st.session_state.data_pilihan = parsed_json
                 
             except Exception as e:
