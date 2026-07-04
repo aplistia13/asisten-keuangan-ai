@@ -15,7 +15,17 @@ client = genai.Client()
 
 def init_google_sheets():
     scopes = ["https://www.googleapis.com/auth/spreadsheets", "https://www.googleapis.com/auth/drive"]
-    creds = Credentials.from_service_account_file("kunci-google.json", scopes=scopes)
+    
+    # KONDISI 1: Jika berjalan di Cloud Server Streamlit
+    if "RAW_GA_JSON" in st.secrets:
+        import json
+        info_kunci = json.loads(st.secrets["RAW_GA_JSON"])
+        creds = Credentials.from_service_account_info(info_kunci, scopes=scopes)
+    
+    # KONDISI 2: Jika berjalan di Lokal Laptop Kamu
+    else:
+        creds = Credentials.from_service_account_file("kunci-google.json", scopes=scopes)
+        
     gc = gspread.authorize(creds)
     return gc.open(NAMA_SPREADSHEET).get_worksheet(0)
 
