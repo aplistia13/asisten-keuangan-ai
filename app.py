@@ -34,7 +34,7 @@ def init_google_sheets():
         info_kunci = json.loads(st.secrets["RAW_GA_JSON"])
         creds = Credentials.from_service_account_info(info_kunci, scopes=scopes)
     else:
-        creds = Credentials.from_service_account_file("kunci-google.json", scopes=scopes)
+        creds = Credentials.from_service_account_file("kunci-ggle.json", scopes=scopes)
         
     sheet = gspread.authorize(creds).open(NAMA_SPREADSHEET).get_worksheet(0)
     return sheet
