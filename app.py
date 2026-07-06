@@ -34,7 +34,7 @@ def init_google_sheets():
         info_kunci = json.loads(st.secrets["RAW_GA_JSON"])
         creds = Credentials.from_service_account_info(info_kunci, scopes=scopes)
     else:
-        creds = Credentials.from_service_account_file("kunci-ggle.json", scopes=scopes)
+        creds = Credentials.from_service_account_file("kunci-google.json", scopes=scopes)
         
     sheet = gspread.authorize(creds).open(NAMA_SPREADSHEET).get_worksheet(0)
     return sheet
@@ -135,6 +135,7 @@ if st.session_state.data_pilihan:
         st.session_state.data_pilihan,
         num_rows="dynamic",
         column_config={
+            "tanggal": st.column_config.TextColumn("Tanggal", help="Format: YYYY-MM-DD"),
             "nominal": st.column_config.NumberColumn("Total Nominal", format="%,d"),
             "tipe": st.column_config.SelectboxColumn("Tipe Transaksi", options=["Pengeluaran", "Penerimaan", "catatan"], required=True),
             "kategori": st.column_config.SelectboxColumn("Kategori", options=KATEGORI_RESMI, required=True),
@@ -142,7 +143,6 @@ if st.session_state.data_pilihan:
         }
     )
     
-    # Pengaturan tombol aksi bersisian
     btn_col1, btn_col2 = st.columns([1, 4])
     
     with btn_col1:
@@ -155,17 +155,17 @@ if st.session_state.data_pilihan:
                             rows_to_append.append([
                                 item.get("tanggal"),
                                 int(item.get("nominal")),
-                                item.get("kategori"),   # Kolom C
-                                item.get("keterangan"), # Kolom D
-                                item.get("tipe"),       # Kolom E
-                                "-"                     # Kolom F
+                                item.get("kategori"),   
+                                item.get("keterangan"), 
+                                item.get("tipe"),       
+                                "-"                     
                             ])
                     
                     if rows_to_append:
                         sheet.append_rows(rows_to_append)
                         st.session_state.reset_counter += 1
                         st.session_state.data_pilihan = None
-                        st.session_state.notif_sukses = f"🎉 Sukses! Transaksi resmi terekam ke database baseline."
+                        st.session_state.notif_sukses = f"🎉 Sukses! {len(rows_to_append)} transaksi terekam ke database."
                         st.rerun()
                 except Exception as e:
                     st.error(f"Eror saat proses simpan ke Sheets: {e}")
@@ -177,40 +177,53 @@ if st.session_state.data_pilihan:
 
 else:
     # --------------------------------------
-    # KONDISI B: FASE INPUT NORMAL (TABEL VERIFIKASI TIDAK MUNCUL)
+    # KONDISI B: FASE INPUT NORMAL
     # --------------------------------------
     st.subheader("📥 Tambah Catatan Transaksi Baru")
     input_user = st.text_area(
-        "Ketik konteks transaksi (misal: 'Beli bensin shell' atau 'Gaji masuk bulanan'):", 
-        key=f"teks_input_user_{st.session_state.reset_counter}"
+        "Ketik konteks transaksi (Bisa masukkan banyak transaksi sekaligus dalam baris baru):", 
+        key=f"teks_input_user_{st.session_state.reset_counter}",
+        placeholder="Contoh:\n1 juli 2026 bayar kartu kredit 570000\n1 juli 2026 terima transferan bonus 2000000"
     )
     berkas_nota = st.file_uploader("📸 Atau upload Nota / berkas PDF belanja kamu:", type=["jpg", "jpeg", "png", "pdf"])
 
     if st.button("Ekstrak Data dengan AI"):
         if input_user or berkas_nota:
-            with st.spinner("Gemini sedang mengekstrak data..."):
+            with st.spinner("Gemini sedang memecah dan mengekstrak data transaksi..."):
                 try:
                     hari_ini = datetime.date.today().strftime("%Y-%m-%d")
                     daftar_kategori_valid = ", ".join(KATEGORI_RESMI)
                     
+                    # Pembaruan Prompt: Mengizinkan pembuatan banyak objek dalam array JSON
                     prompt = f"""
-                    Kamu adalah robot akuntan cerdas. Tugasmu merangkum data keuangan menjadi TEPAT SATU baris transaksi JSON Array.
-                    Tanggal hari ini adalah {hari_ini}.
+                    Kamu adalah robot akuntan cerdas dan teliti. Tugas utamamu adalah mengekstrak teks konteks keuangan menjadi baris-baris transaksi terpisah di dalam struktur JSON Array.
                     
-                    Aturan Ekstraksi Kaku:
-                    1. 'nominal': Isi dengan nilai uang bersih tanpa titik/koma.
-                    2. 'tipe': Wajib pilih salah satu dari: [Pengeluaran, Penerimaan, catatan]. Jika ada berkas nota belanja fisik, otomatis 'Pengeluaran'. Jika user menceritakan uang masuk/transferan dapat, jadikan 'Penerimaan'.
-                    3. 'keterangan': Mulai dengan konteks user: '{input_user}'. Jika ada nota belanja, tuliskan rincian item barang dan harganya secara lengkap tanpa dipotong.
-                    4. 'kategori': Pilih satu yang paling cocok dari daftar kaku ini: [{daftar_kategori_valid}]
+                    PANDUAN EKSTRAKSI UTAMA:
+                    - JIKA teks berisi lebih dari satu aktivitas transaksi keuangan, kamu WAJIB memisahnya menjadi objek JSON yang berbeda secara individual di dalam array. Jangan digabung, jangan ditotal!
+                    - Deteksi secara peka mana yang merupakan uang masuk ('Penerimaan') dan mana uang keluar ('Pengeluaran').
                     
-                    Hasilkan HANYA output JSON array kaku seperti contoh ini:
+                    Aturan Atribut Objek:
+                    1. 'tanggal': Cari petunjuk tanggal di dalam teks (misal: '1 juli 2026' menjadi '2026-07-01'). Jika tidak ada petunjuk tanggal sama sekali, gunakan tanggal default hari ini: '{hari_ini}'.
+                    2. 'nominal': Isi dengan nilai uang angka bersih tanpa titik/koma/simbol mata uang. (misal: 1,450000 atau 2juta diubah menjadi integer murni: 1450000 atau 2000000).
+                    3. 'tipe': Pilih secara akurat dari tiga opsi ini: [Pengeluaran, Penerimaan, catatan].
+                    4. 'kategori': Pilih satu yang paling cocok dari daftar resmi ini saja: [{daftar_kategori_valid}]
+                    5. 'keterangan': Tulis rincian deskripsi pendek khusus untuk transaksi terkait tersebut saja. Jangan mencampur deskripsi antar transaksi berbeda.
+                    
+                    Hasilkan HANYA output JSON array kaku seperti contoh struktur multi-objek ini:
                     [
                       {{
-                        "tanggal": "{hari_ini}", 
-                        "nominal": 481544,
+                        "tanggal": "2026-07-01", 
+                        "nominal": 570000,
                         "tipe": "Pengeluaran",
-                        "kategori": "Kebutuhan Pokok", 
-                        "keterangan": "Belanja mingguan di Superindo\\n- Item A: 20000"
+                        "kategori": "Tagihan & Cicilan", 
+                        "keterangan": "Bayar kartu kredit"
+                      }},
+                      {{
+                        "tanggal": "2026-07-01", 
+                        "nominal": 2000000,
+                        "tipe": "Penerimaan",
+                        "kategori": "Lainnya", 
+                        "keterangan": "Terima transferan bonus"
                       }}
                     ]
                     """
@@ -224,7 +237,7 @@ else:
                             gambar = Image.open(io.BytesIO(file_bytes))
                             input_gemini = [prompt, gambar]
                     else:
-                        input_gemini = [f"{prompt}\nTeks dari user: '{input_user}'"]
+                        input_gemini = [f"{prompt}\nTeks dari user:\n{input_user}"]
                     
                     response = client.models.generate_content(
                         model="gemini-2.5-flash",
