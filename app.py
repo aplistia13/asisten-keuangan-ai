@@ -79,7 +79,7 @@ except Exception as e:
     st.sidebar.warning(f"Gagal memproses data visualisasi: {e}")
 
 # ==========================================
-# 3. UI STREAMLIT: DASBOR DISTRIBUSI BULANAN
+# 3. UI STREAMLIT: DASBOR UTAMA (RINGKASAN ATAS)
 # ==========================================
 st.set_page_config(page_title="Catatan Keuangan Mima Baba", layout="centered")
 st.title("💰 Catatan Keuangan Mima Baba")
@@ -91,20 +91,6 @@ with col1:
     st.metric(label="Total Pemasukan (Penerimaan)", value=f"Rp {total_penerimaan:,.0f}".replace(",", "."))
 with col2:
     st.metric(label="Total Pengeluaran", value=f"Rp {total_pengeluaran:,.0f}".replace(",", "."))
-
-st.markdown("#### 🥧 Distribusi Alokasi Uang Keluar")
-if total_pengeluaran > 0:
-    for kategori, nominal in distribusi_pengeluaran.items():
-        persen = (nominal / total_pengeluaran) * 100
-        progress_val = nominal / total_pengeluaran
-        
-        str_nominal = f"Rp {nominal:,.0f}".replace(",", ".")
-        st.text(f"📁 {kategori} | {persen:.1f}% ({str_nominal})")
-        st.progress(progress_val)
-else:
-    st.info("Belum ada data pengeluaran yang terekam bulan ini. Silakan masukkan nota pertama kamu.")
-
-st.markdown("---")
 
 if "reset_counter" not in st.session_state:
     st.session_state.reset_counter = 0
@@ -121,12 +107,12 @@ if "data_pilihan" not in st.session_state:
 
 
 # ==========================================
-# 4 & 5. LOGIKA INTERAKSI KONDISIONAL (ANTI FORM GANDA)
+# 4 & 5. LOGIKA INTERAKSI KONDISIONAL (ALUR INPUT & VERIFIKASI)
 # ==========================================
 
 if st.session_state.data_pilihan:
     # --------------------------------------
-    # KONDISI A: TAHAP VERIFIKASI DATA (FORM INPUT DISEMBUNYIKAN)
+    # KONDISI A: TAHAP VERIFIKASI DATA
     # --------------------------------------
     st.subheader("📋 Verifikasi Data Hasil AI")
     st.warning("⚠️ DATA DI BAWAH INI BELUM TEREKAM! Periksa kembali rincian, lalu tekan tombol 'Rekam!' di bawah untuk menyimpan.")
@@ -194,13 +180,12 @@ else:
                     hari_ini = datetime.date.today().strftime("%Y-%m-%d")
                     daftar_kategori_valid = ", ".join(KATEGORI_RESMI)
                     
-                    # Pembaruan Prompt: Mengizinkan pembuatan banyak objek dalam array JSON
                     prompt = f"""
                     Kamu adalah robot akuntan cerdas dan teliti. Tugas utamamu adalah mengekstrak teks konteks keuangan menjadi baris-baris transaksi terpisah di dalam struktur JSON Array.
                     
                     PANDUAN EKSTRAKSI UTAMA:
                     - JIKA teks berisi lebih dari satu aktivitas transaksi keuangan, kamu WAJIB memisahnya menjadi objek JSON yang berbeda secara individual di dalam array. Jangan digabung, jangan ditotal!
-                    - Deteksi secara peka mana yang merupakan uang masuk ('Penerimaan') dan mana uang keluar ('Pengeluaran').
+                    - Deteksi secara peka mana yang merupakan uang masuk ('Penerimaan') and mana uang keluar ('Pengeluaran').
                     
                     Aturan Atribut Objek:
                     1. 'tanggal': Cari petunjuk tanggal di dalam teks (misal: '1 juli 2026' menjadi '2026-07-01'). Jika tidak ada petunjuk tanggal sama sekali, gunakan tanggal default hari ini: '{hari_ini}'.
@@ -255,3 +240,19 @@ else:
                     st.error(f"Gagal memproses dokumen keuangan. Eror: {e}")
         else:
             st.warning("Silakan isi konteks teks atau lampirkan berkas terlebih dahulu.")
+
+# ==========================================
+# 6. DETAIL DISTRIBUSI BULANAN (DISEMBUNYIKAN & PALING BAWAH)
+# ==========================================
+st.markdown("---")
+with st.expander("📊 Lihat Detail Distribusi Alokasi Uang Keluar"):
+    if total_pengeluaran > 0:
+        for kategori, nominal in distribusi_pengeluaran.items():
+            persen = (nominal / total_pengeluaran) * 100
+            progress_val = nominal / total_pengeluaran
+            
+            str_nominal = f"Rp {nominal:,.0f}".replace(",", ".")
+            st.text(f"📁 {kategori} | {persen:.1f}% ({str_nominal})")
+            st.progress(progress_val)
+    else:
+        st.info("Belum ada data pengeluaran yang terekam bulan ini.")
