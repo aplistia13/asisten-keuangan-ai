@@ -17,13 +17,13 @@ KATEGORI_RESMI = [
     "Tagihan & Cicilan",
     "Transportasi",
     "Anak & Keluarga",
-    "Hobi & Gaya Hidup",
+    "Hobi & Gaya Lifestyle",
     "Tabungan & Investasi",
     "Lainnya"
 ]
 
 NAMA_SPREADSHEET = "pencatat-keuangan"
-URL_LOOKER_STUDIO = "https://datastudio.google.com/s/mHCWurmgDmc"
+URL_LOOKER_STUDIO = "https://datastudio.google.com/reporting/d77baf56-8245-462a-b6c7-e63dd0410dab"
 
 client = genai.Client()
 
@@ -62,10 +62,10 @@ try:
                 tipe_tercatat = row[4].strip()
                 
                 # Pembersihan format uang ribuan Indonesia
-                nom_bersih = nom_mentah.split(',')[0].replace('.', '').replace(' ', '')
+                nom_clean = nom_mentah.split(',')[0].replace('.', '').replace(' ', '')
                 
-                if nom_bersih.isdigit():
-                    nominal_int = int(nom_bersih)
+                if nom_clean.isdigit():
+                    nominal_int = int(nom_clean)
                     
                     if tipe_tercatat == "Penerimaan":
                         total_penerimaan += nominal_int
@@ -81,8 +81,8 @@ except Exception as e:
 # ==========================================
 # 3. UI STREAMLIT: DASBOR DISTRIBUSI BULANAN
 # ==========================================
-st.set_page_config(page_title="AI Finance Logger v3", layout="centered")
-st.title("💰 AI Finance Logger v3.0")
+st.set_page_config(page_title="Catatan Keuangan Mima Baba", layout="centered")
+st.title("💰 Catatan Keuangan Mima Baba")
 st.caption("🔬 Mode Observasi: Pengumpulan Data Baseline Keuangan")
 
 st.markdown("### 📊 Ringkasan Arus Kas Bulan Ini")
@@ -119,74 +119,17 @@ st.markdown("---")
 if "data_pilihan" not in st.session_state:
     st.session_state.data_pilihan = None
 
-input_user = st.text_area(
-    "Ketik konteks transaksi (misal: 'Beli bensin shell' atau 'Gaji masuk bulanan'):", 
-    key=f"teks_input_user_{st.session_state.reset_counter}"
-)
-berkas_nota = st.file_uploader("📸 Atau upload Nota / berkas PDF belanja kamu:", type=["jpg", "jpeg", "png", "pdf"])
-
-if st.button("Ekstrak Data dengan AI", type="primary"):
-    if input_user or berkas_nota:
-        with st.spinner("Gemini sedang mengekstrak data..."):
-            try:
-                hari_ini = datetime.date.today().strftime("%Y-%m-%d")
-                daftar_kategori_valid = ", ".join(KATEGORI_RESMI)
-                
-                prompt = f"""
-                Kamu adalah robot akuntan cerdas. Tugasmu merangkum data keuangan menjadi TEPAT SATU baris transaksi JSON Array.
-                Tanggal hari ini adalah {hari_ini}.
-                
-                Aturan Ekstraksi Kaku:
-                1. 'nominal': Isi dengan nilai uang bersih tanpa titik/koma.
-                2. 'tipe': Wajib pilih salah satu dari: [Pengeluaran, Penerimaan, catatan]. Jika ada berkas nota belanja fisik, otomatis 'Pengeluaran'. Jika user menceritakan uang masuk/transferan dapat, jadikan 'Penerimaan'.
-                3. 'keterangan': Mulai dengan konteks user: '{input_user}'. Jika ada nota belanja, tuliskan rincian item barang dan harganya secara lengkap tanpa dipotong.
-                4. 'kategori': Pilih satu yang paling cocok dari daftar kaku ini: [{daftar_kategori_valid}]
-                
-                Hasilkan HANYA output JSON array kaku seperti contoh ini:
-                [
-                  {{
-                    "tanggal": "{hari_ini}", 
-                    "nominal": 481544,
-                    "tipe": "Pengeluaran",
-                    "kategori": "Kebutuhan Pokok", 
-                    "keterangan": "Belanja mingguan di Superindo\\n- Item A: 20000"
-                  }}
-                ]
-                """
-                
-                if berkas_nota:
-                    file_bytes = berkas_nota.read()
-                    if berkas_nota.type == "application/pdf":
-                        dokumen_pdf = types.Part.from_bytes(data=file_bytes, mime_type="application/pdf")
-                        input_gemini = [prompt, dokumen_pdf]
-                    else:
-                        gambar = Image.open(io.BytesIO(file_bytes))
-                        input_gemini = [prompt, gambar]
-                else:
-                    input_gemini = [f"{prompt}\nTeks dari user: '{input_user}'"]
-                
-                response = client.models.generate_content(
-                    model="gemini-2.5-flash",
-                    contents=input_gemini,
-                    config=types.GenerateContentConfig(
-                        response_mime_type="application/json"
-                    )
-                )
-                
-                parsed_json = json.loads(response.text.strip())
-                st.session_state.data_pilihan = parsed_json
-                
-            except Exception as e:
-                st.error(f"Gagal memproses dokumen keuangan. Eror: {e}")
-    else:
-        st.warning("Silakan isi konteks teks atau lampirkan berkas terlebih dahulu.")
 
 # ==========================================
-# 4. VERIFIKASI & PENGIRIMAN DATA KAKU (A-F)
+# 4 & 5. LOGIKA INTERAKSI KONDISIONAL (ANTI FORM GANDA)
 # ==========================================
+
 if st.session_state.data_pilihan:
-    st.markdown("---")
+    # --------------------------------------
+    # KONDISI A: TAHAP VERIFIKASI DATA (FORM INPUT DISEMBUNYIKAN)
+    # --------------------------------------
     st.subheader("📋 Verifikasi Data Hasil AI")
+    st.warning("⚠️ DATA DI BAWAH INI BELUM TEREKAM! Periksa kembali rincian, lalu tekan tombol 'Rekam!' di bawah untuk menyimpan.")
     
     edited_df = st.data_editor(
         st.session_state.data_pilihan,
@@ -199,26 +142,103 @@ if st.session_state.data_pilihan:
         }
     )
     
-    if st.button("Simpan ke Google Sheets"):
-        with st.spinner("Sedang mengirim data transaksi..."):
-            try:
-                rows_to_append = []
-                for item in edited_df:
-                    if item.get("tanggal") and item.get("nominal") is not None:
-                        rows_to_append.append([
-                            item.get("tanggal"),
-                            int(item.get("nominal")),
-                            item.get("kategori"),   # Kolom C
-                            item.get("keterangan"), # Kolom D
-                            item.get("tipe"),       # Kolom E
-                            "-"                     # Kolom F
-                        ])
-                
-                if rows_to_append:
-                    sheet.append_rows(rows_to_append)
-                    st.session_state.reset_counter += 1
-                    st.session_state.data_pilihan = None
-                    st.session_state.notif_sukses = f"🎉 Sukses! Transaksi terekam ke database baseline."
+    # Pengaturan tombol aksi bersisian
+    btn_col1, btn_col2 = st.columns([1, 4])
+    
+    with btn_col1:
+        if st.button("Rekam!", type="primary"):
+            with st.spinner("Sedang menyimpan data transaksi resmi..."):
+                try:
+                    rows_to_append = []
+                    for item in edited_df:
+                        if item.get("tanggal") and item.get("nominal") is not None:
+                            rows_to_append.append([
+                                item.get("tanggal"),
+                                int(item.get("nominal")),
+                                item.get("kategori"),   # Kolom C
+                                item.get("keterangan"), # Kolom D
+                                item.get("tipe"),       # Kolom E
+                                "-"                     # Kolom F
+                            ])
+                    
+                    if rows_to_append:
+                        sheet.append_rows(rows_to_append)
+                        st.session_state.reset_counter += 1
+                        st.session_state.data_pilihan = None
+                        st.session_state.notif_sukses = f"🎉 Sukses! Transaksi resmi terekam ke database baseline."
+                        st.rerun()
+                except Exception as e:
+                    st.error(f"Eror saat proses simpan ke Sheets: {e}")
+                    
+    with btn_col2:
+        if st.button("Batal / Reset Input"):
+            st.session_state.data_pilihan = None
+            st.rerun()
+
+else:
+    # --------------------------------------
+    # KONDISI B: FASE INPUT NORMAL (TABEL VERIFIKASI TIDAK MUNCUL)
+    # --------------------------------------
+    st.subheader("📥 Tambah Catatan Transaksi Baru")
+    input_user = st.text_area(
+        "Ketik konteks transaksi (misal: 'Beli bensin shell' atau 'Gaji masuk bulanan'):", 
+        key=f"teks_input_user_{st.session_state.reset_counter}"
+    )
+    berkas_nota = st.file_uploader("📸 Atau upload Nota / berkas PDF belanja kamu:", type=["jpg", "jpeg", "png", "pdf"])
+
+    if st.button("Ekstrak Data dengan AI"):
+        if input_user or berkas_nota:
+            with st.spinner("Gemini sedang mengekstrak data..."):
+                try:
+                    hari_ini = datetime.date.today().strftime("%Y-%m-%d")
+                    daftar_kategori_valid = ", ".join(KATEGORI_RESMI)
+                    
+                    prompt = f"""
+                    Kamu adalah robot akuntan cerdas. Tugasmu merangkum data keuangan menjadi TEPAT SATU baris transaksi JSON Array.
+                    Tanggal hari ini adalah {hari_ini}.
+                    
+                    Aturan Ekstraksi Kaku:
+                    1. 'nominal': Isi dengan nilai uang bersih tanpa titik/koma.
+                    2. 'tipe': Wajib pilih salah satu dari: [Pengeluaran, Penerimaan, catatan]. Jika ada berkas nota belanja fisik, otomatis 'Pengeluaran'. Jika user menceritakan uang masuk/transferan dapat, jadikan 'Penerimaan'.
+                    3. 'keterangan': Mulai dengan konteks user: '{input_user}'. Jika ada nota belanja, tuliskan rincian item barang dan harganya secara lengkap tanpa dipotong.
+                    4. 'kategori': Pilih satu yang paling cocok dari daftar kaku ini: [{daftar_kategori_valid}]
+                    
+                    Hasilkan HANYA output JSON array kaku seperti contoh ini:
+                    [
+                      {{
+                        "tanggal": "{hari_ini}", 
+                        "nominal": 481544,
+                        "tipe": "Pengeluaran",
+                        "kategori": "Kebutuhan Pokok", 
+                        "keterangan": "Belanja mingguan di Superindo\\n- Item A: 20000"
+                      }}
+                    ]
+                    """
+                    
+                    if berkas_nota:
+                        file_bytes = berkas_nota.read()
+                        if berkas_nota.type == "application/pdf":
+                            dokumen_pdf = types.Part.from_bytes(data=file_bytes, mime_type="application/pdf")
+                            input_gemini = [prompt, dokumen_pdf]
+                        else:
+                            gambar = Image.open(io.BytesIO(file_bytes))
+                            input_gemini = [prompt, gambar]
+                    else:
+                        input_gemini = [f"{prompt}\nTeks dari user: '{input_user}'"]
+                    
+                    response = client.models.generate_content(
+                        model="gemini-2.5-flash",
+                        contents=input_gemini,
+                        config=types.GenerateContentConfig(
+                            response_mime_type="application/json"
+                        )
+                    )
+                    
+                    parsed_json = json.loads(response.text.strip())
+                    st.session_state.data_pilihan = parsed_json
                     st.rerun()
-            except Exception as e:
-                st.error(f"Eror saat proses simpan ke Sheets: {e}")
+                    
+                except Exception as e:
+                    st.error(f"Gagal memproses dokumen keuangan. Eror: {e}")
+        else:
+            st.warning("Silakan isi konteks teks atau lampirkan berkas terlebih dahulu.")
